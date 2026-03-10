@@ -1,5 +1,5 @@
 //! Web API module for onion packet construction
-//! 
+//!
 //! Provides REST API endpoints for the web UI to interact with
 //! the Sphinx packet construction backend.
 
@@ -9,12 +9,12 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use serde::{Deserialize, Serialize};
 use secp256k1::{Secp256k1, SecretKey};
+use serde::{Deserialize, Serialize};
 
 use crate::crypto::{
-    compute_next_hmac, compute_shared_secrets, generate_cipher_stream,
-    generate_filler, generate_initial_header,
+    compute_next_hmac, compute_shared_secrets, generate_cipher_stream, generate_filler,
+    generate_initial_header,
 };
 use crate::types::{Hops, OnionPacket};
 use crate::utils::{key_generation, right_shift, xor_bytes, MIX_HEADER_SIZE};
@@ -67,27 +67,27 @@ pub struct LayerStep {
 pub struct BuildOnionResponse {
     pub success: bool,
     pub error: Option<String>,
-    
+
     // Input summary
     pub session_key: String,
     pub ephemeral_pubkey: String,
     pub associated_data: String,
     pub num_hops: usize,
-    
+
     // Initial header
     pub padding_key: String,
     pub initial_header: String,
-    
+
     // Shared secrets
     pub shared_secrets: Vec<SharedSecretInfo>,
-    
+
     // Filler
     pub filler_size: usize,
     pub filler_hex: String,
-    
+
     // Layer construction steps
     pub layers: Vec<LayerStep>,
-    
+
     // Final packet
     pub final_packet: FinalPacketInfo,
 }
@@ -109,96 +109,106 @@ pub fn build_onion_with_details(request: &BuildOnionRequest) -> BuildOnionRespon
     if hex::decode_to_slice(&request.session_key, &mut private_key_bytes).is_err() {
         return error_response("Invalid session key hex");
     }
-    
+
     let session_key = match SecretKey::from_byte_array(private_key_bytes) {
         Ok(sk) => sk,
         Err(_) => return error_response("Invalid session key"),
     };
-    
+
     let associated_data = match hex::decode(&request.associated_data) {
         Ok(ad) => ad,
         Err(_) => return error_response("Invalid associated data hex"),
     };
-    
+
     // Convert hops
-    let hops: Vec<Hops> = request.hops.iter().map(|h| Hops {
-        pubkey: h.pubkey.clone(),
-        payload: h.payload.clone(),
-    }).collect();
-    
+    let hops: Vec<Hops> = request
+        .hops
+        .iter()
+        .map(|h| Hops {
+            pubkey: h.pubkey.clone(),
+            payload: h.payload.clone(),
+        })
+        .collect();
+
     let secp = Secp256k1::new();
     let ephemeral_pubkey = session_key.public_key(&secp);
-    
+
     // Generate padding key and initial header
     let padding_key = key_generation("pad", &session_key.secret_bytes());
     let initial_header = generate_initial_header(&padding_key);
-    
+
     // Compute shared secrets
     let hop_secrets = compute_shared_secrets(session_key, &hops);
-    
-    let shared_secrets: Vec<SharedSecretInfo> = hops.iter().zip(hop_secrets.iter()).enumerate()
+
+    let shared_secrets: Vec<SharedSecretInfo> = hops
+        .iter()
+        .zip(hop_secrets.iter())
+        .enumerate()
         .map(|(i, (hop, secret))| SharedSecretInfo {
             hop_index: i,
             hop_pubkey: hop.pubkey.clone(),
             shared_secret: hex::encode(secret),
             rho_key: hex::encode(key_generation("rho", secret)),
             mu_key: hex::encode(key_generation("mu", secret)),
-        }).collect();
-    
+        })
+        .collect();
+
     // Generate filler
     let filler = generate_filler(&hops, &hop_secrets);
-    
+
     // Build layers with detailed tracking
     let mut mix_header = initial_header.clone();
     let mut next_hmac = [0u8; 32];
     let mut layers: Vec<LayerStep> = Vec::new();
-    
+
     for (hop_num, hop) in hops.iter().rev().enumerate() {
         let actual_index = hops.len() - 1 - hop_num;
         let is_innermost = hop_num == 0;
-        
+
         let mix_header_before_shift = hex::encode(&mix_header);
-        
+
         let curr_shared_secret = &hop_secrets[actual_index];
         let curr_hop_rho_key = key_generation("rho", curr_shared_secret);
         let curr_hop_mu_key = key_generation("mu", curr_shared_secret);
-        
+
         let payload_bytes = match hex::decode(&hop.payload) {
             Ok(p) => p,
-            Err(_) => return error_response(&format!("Invalid payload hex at hop {}", actual_index)),
+            Err(_) => {
+                return error_response(&format!("Invalid payload hex at hop {}", actual_index))
+            }
         };
         let payload_bytes_len = payload_bytes.len();
         let shift_key = 32 + payload_bytes_len;
-        
+
         // Right shift
         right_shift(&mut mix_header, shift_key);
         for i in 0..shift_key {
             mix_header[i] = 0u8;
         }
         let mix_header_after_shift = hex::encode(&mix_header);
-        
+
         // Insert payload and HMAC
         let mut serialized_field = Vec::new();
         serialized_field.extend_from_slice(&payload_bytes);
         serialized_field.extend_from_slice(&next_hmac);
         mix_header[..serialized_field.len()].copy_from_slice(&serialized_field);
         let mix_header_after_payload = hex::encode(&mix_header);
-        
+
         // XOR with cipher stream
         let cipher_stream = generate_cipher_stream(&curr_hop_rho_key, MIX_HEADER_SIZE);
         mix_header = xor_bytes(&mix_header, &cipher_stream).try_into().unwrap();
         let mix_header_after_xor = hex::encode(&mix_header);
-        
+
         // Add filler for innermost layer
         if is_innermost {
             let start = mix_header.len() - filler.len();
             mix_header[start..].copy_from_slice(&filler);
         }
         let mix_header_final = hex::encode(&mix_header);
-        
+
         // Compute HMAC
         next_hmac = compute_next_hmac(&curr_hop_mu_key, &mix_header, &associated_data);
-        
+
         layers.push(LayerStep {
             hop_index: actual_index,
             hop_pubkey: hop.pubkey.clone(),
@@ -216,10 +226,10 @@ pub fn build_onion_with_details(request: &BuildOnionRequest) -> BuildOnionRespon
             is_innermost,
         });
     }
-    
+
     // Create final packet
     let packet = OnionPacket::new(0x00, ephemeral_pubkey.serialize(), mix_header, next_hmac);
-    
+
     BuildOnionResponse {
         success: true,
         error: None,

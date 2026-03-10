@@ -25,7 +25,12 @@ pub struct OnionPacket {
 }
 
 impl OnionPacket {
-    pub fn new(version: u8, ephemeral_pubkey: [u8; 33], mix_header: [u8; 1300], hmac: [u8; 32]) -> Self {
+    pub fn new(
+        version: u8,
+        ephemeral_pubkey: [u8; 33],
+        mix_header: [u8; 1300],
+        hmac: [u8; 32],
+    ) -> Self {
         Self {
             version,
             ephemeral_pubkey,

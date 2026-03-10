@@ -11,20 +11,16 @@
 
 #![allow(unused)]
 
+mod api;
+mod crypto;
 mod types;
 mod utils;
-mod crypto;
-mod api;
 
-use std::{
-    env,
-    net::SocketAddr,
-    path::PathBuf,
-};
+use std::{env, net::SocketAddr, path::PathBuf};
 
 use axum::Router;
-use tower_http::services::ServeDir;
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::services::ServeDir;
 
 use api::create_api_router;
 
