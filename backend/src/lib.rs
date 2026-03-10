@@ -8,15 +8,12 @@
 //! - `types`: Data structures for onion packets and hops
 //! - `utils`: Utility functions for cryptographic operations
 //! - `crypto`: Core cryptographic primitives (ECDH, ChaCha20, HMAC)
-//! - `visualizer`: Visual representation of packet construction
 //! - `api`: Web API endpoints for the web UI
 
 pub mod types;
 pub mod utils;
 pub mod crypto;
-pub mod visualizer;
 pub mod api;
 
-pub use types::{Hops, InputData, OnionPacket, OnionLayerState};
-pub use visualizer::{OnionVisualizer, VisualizerConfig, visualize_onion_construction};
+pub use types::{Hops, InputData, OnionPacket};
 pub use api::{create_api_router, BuildOnionRequest, BuildOnionResponse};
