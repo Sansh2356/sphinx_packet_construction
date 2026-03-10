@@ -1,0 +1,6 @@
+target
+/test/output.txt
+/frontend/node_modules
+/backend/target
+/frontend/dist
+/backend/src/output.txt
